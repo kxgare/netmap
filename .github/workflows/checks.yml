@@ -1,0 +1,39 @@
+name: Проверки NetMap
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  tests:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Системные зависимости Qt для Linux
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libopengl0 libxkbcommon0 libnss3 libasound2t64
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pytest -q
+      - run: python scripts/gui_smoke.py
+      - run: python scripts/map_smoke.py
+  windows-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m PyInstaller --noconfirm --clean NetMap.spec
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NetMap-Windows
+          path: dist/NetMap/
