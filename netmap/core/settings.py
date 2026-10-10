@@ -1,4 +1,4 @@
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 import json
 import math
 import os
@@ -16,12 +16,14 @@ def data_dir() -> Path:
 
 @dataclass
 class Settings:
+    favorites: list[str] = field(default_factory=list)
     theme: str = "dark"
     mode: str = "simple"
     onboarding_done: bool = False
     interval: float = 2.0
     autostart: bool = True
     animations: bool = True
+    map_performance: bool = False
     map_limit: int = 500
     geo_path: str = ""
     retention_days: int = 30
@@ -34,9 +36,11 @@ class Settings:
     diagnostic_timeout: float = 2.0
 
     def validate(self):
+        if not isinstance(self.favorites,list) or any(not isinstance(k,str) or not k for k in self.favorites) or len(self.favorites)>256:
+            raise ValueError("Некорректный список избранного")
         if self.theme not in ("dark", "light") or self.mode not in ("simple", "expert"):
             raise ValueError("Неизвестная тема или режим")
-        bool_names = ("onboarding_done", "autostart", "animations", "origin_enabled", "online_tiles", "diagnostics_enabled")
+        bool_names = ("map_performance", "onboarding_done", "autostart", "animations", "origin_enabled", "online_tiles", "diagnostics_enabled")
         if any(type(getattr(self, n)) is not bool for n in bool_names):
             raise ValueError("Некорректное логическое значение настройки")
         if not isinstance(self.geo_path, str):

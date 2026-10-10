@@ -27,7 +27,7 @@ def map_points(connections, historical=(), app=""):
         point = grouped.setdefault(c.remote_ip, {"ip": c.remote_ip, **asdict(c.location),
                                     "active": True, "new": (c.first_seen or c.observed)==c.observed, "connections": [], "first": c.first_seen or c.observed,
                                     "last": c.observed})
-        point["connections"].append({"process": c.process, "pid": c.pid, "protocol": c.protocol,
+        point["connections"].append({"app_key":c.app_key,"process": c.process, "pid": c.pid, "protocol": c.protocol,
                                      "port": c.remote_port, "status": c.status})
         point["first"] = min(point["first"], c.first_seen or c.observed)
     for row in historical:

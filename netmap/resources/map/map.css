@@ -14,3 +14,17 @@ html,body{background:var(--bg);}
 #empty{position:absolute;z-index:450;left:62px;top:16px;max-width:350px;background:var(--surface);color:var(--text);padding:12px 16px;border-radius:7px;font-size:14px;pointer-events:none;}
 #empty span{display:block;font-size:12px;color:var(--muted);line-height:1.6;margin-top:6px;}
 .cluster{background:var(--surface);border:1px solid var(--text);border-radius:50%;color:var(--text);text-align:center;line-height:30px;font-size:12px;}
+
+.cluster{background:transparent;border:none;color:#171c19;font-weight:650;cursor:pointer;}
+.cluster span{display:block;border-radius:50%;border:1px solid rgba(255,255,255,.5);box-sizing:border-box;transition:filter 140ms;}
+.cluster:hover span{filter:brightness(1.18);}
+.leaflet-control-zoom a{transition:background-color 140ms,color 140ms;}
+.leaflet-control-zoom a:hover{filter:brightness(1.2);}
+.leaflet-control-zoom a:focus-visible{outline:2px solid #c5ad7f;outline-offset:2px;}
+.density-key{display:inline-block;width:65px;height:8px;background:linear-gradient(90deg,#609c88,#b9a35e,#c38b5f,#bc7564);border-radius:4px;}
+.density-canvas{position:absolute;pointer-events:none;}
+
+.cluster-size{display:inline-block;border:1px solid #609c88;border-radius:50%;vertical-align:middle;margin-right:4px;}
+.cluster-size.small{width:8px;height:8px;}.cluster-size.large{width:16px;height:16px;}
+
+.legend{max-width:calc(55% - 36px);}.legend,#counter{overflow-wrap:break-word;}#counter{max-width:calc(45% - 44px);}

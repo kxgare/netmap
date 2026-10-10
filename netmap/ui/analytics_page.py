@@ -10,6 +10,7 @@ class AnalyticsPage(QWidget):
     period_requested = Signal(int)
     probe_requested = Signal(str,int)
     cancel_requested = Signal()
+    map_requested=Signal(str)
     def __init__(self):
         super().__init__()
         outer = QVBoxLayout(self)
@@ -40,6 +41,8 @@ class AnalyticsPage(QWidget):
         row.addWidget(card("Протоколы · сеансы за период",self.protocols))
         layout.addLayout(row)
         layout.addWidget(card("География · публичные IP за период",self.countries))
+        self.new_addresses=QTextBrowser(); self.new_addresses.setMaximumHeight(220); self.new_addresses.anchorClicked.connect(lambda url:self.map_requested.emit(url.toString()[3:]))
+        layout.addWidget(card('Новые публичные адреса · впервые в сохранённой истории',self.new_addresses))
         diag = QWidget()
         d = QVBoxLayout(diag)
         d.setContentsMargins(0,0,0,0)
@@ -87,6 +90,7 @@ class AnalyticsPage(QWidget):
         self.metrics['new'].setText(str(payload['new_ips']) if payload['available'] else '—')
         self.metrics['unique_ips'].setText(str(payload['unique_ips']) if payload['available'] else '—')
         self.metrics['new'].setToolTip('IP впервые появился в выбранном периоде относительно сохранённой истории. Удалённая история не учитывается.')
+        self.new_addresses.setHtml(''.join('<p><a href="ip:'+html.escape(row['remote_ip'],quote=True)+'">'+html.escape(row['remote_ip'])+'</a> · '+html.escape(', '.join(row['apps']))+' · '+html.escape(row['country'] or 'Страна не определена')+' · '+display_time(row['first_seen'])+'</p>' for row in payload.get('new_addresses',[])) or '<p>Новых адресов в выбранном периоде не найдено.</p>')
         self.timeline.set_samples(payload['samples'])
         self.apps.set_values(payload['apps']); self.protocols.set_values(payload['protocols']); self.countries.set_values(payload['countries'])
 

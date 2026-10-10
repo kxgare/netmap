@@ -1,5 +1,6 @@
 """Network Atlas tokens shared by Qt, charts and the embedded map."""
 from dataclasses import dataclass
+from pathlib import Path
 
 @dataclass(frozen=True)
 class Tokens:
@@ -30,10 +31,12 @@ def tokens(theme='dark'):
 
 def stylesheet(theme='dark'):
     t=tokens(theme)
+    arrow=(Path(__file__).resolve().parents[1]/'resources/chevron.svg').as_posix()
     return f'''
-* {{ font-family: '{t.font}', sans-serif; font-size:{t.body}px; }}
+* {{ font-size:{t.body}px; }}
 QWidget {{ color:{t.text}; }}
 QMainWindow, QWidget#root, QDialog {{ background:{t.bg}; }}
+QDialog#search-overlay {{ border:1px solid {t.line}; border-radius:8px; }}
 QFrame#titlebar {{ background:{t.bg}; }}
 QFrame#navigation {{ border-bottom:1px solid {t.line}; background:{t.bg}; }}
 QLabel#brand {{ font-size:24px; font-weight:650; }}
@@ -80,5 +83,20 @@ QGroupBox::title {{ subcontrol-origin:margin; subcontrol-position:top left; padd
 QToolTip,QMenu {{ background:{t.surface}; color:{t.text}; border:1px solid {t.line}; padding:5px; }}
 QMenu::item {{ padding:7px 16px; }}
 QMenu::item:selected {{ background:{t.selection}; }}
+QPushButton:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus, QDateEdit:focus, QTableView:focus, QTreeWidget:focus {{ border:1px solid {t.accent}; }}
+QPushButton#nav:hover, QPushButton#mode:hover {{ background:{t.selection}; color:{t.text}; border:1px solid {t.line}; }}
+QPushButton#nav:pressed, QPushButton#mode:pressed {{ background:{t.line}; }}
+QPushButton#close:pressed {{ background:#7e2525; }}
+QPushButton#window:pressed {{ background:{t.line}; }}
+QComboBox:hover, QSpinBox:hover, QDoubleSpinBox:hover, QDateEdit:hover, QLineEdit:hover {{ border-color:{t.muted}; }}
+QComboBox:disabled, QSpinBox:disabled, QLineEdit:disabled {{ color:{t.muted}; background:{t.bg}; }}
+QComboBox::drop-down {{ border:none; width:26px; }}
+QComboBox::down-arrow {{ image:url({arrow}); width:14px; height:14px; }}
+QAbstractItemView {{ selection-color:{t.text}; outline:0; }}
+QTableView::item:hover, QTreeWidget::item:hover, QListWidget::item:hover {{ background:{t.raised}; }}
+QScrollBar:horizontal {{ background:{t.bg}; height:10px; }}
+QScrollBar::handle:horizontal {{ background:{t.line}; border-radius:4px; min-width:24px; }}
+QScrollBar::handle:hover {{ background:{t.muted}; }}
+QScrollBar::add-line:horizontal,QScrollBar::sub-line:horizontal {{ width:0; }}
 '''
 STYLE=stylesheet()

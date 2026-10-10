@@ -7,7 +7,7 @@
 | --- | --- |
 | Повторяемая установка `bash scripts/cloud-install.sh` | Успех |
 | `python -m pip check` | Несовместимых зависимостей нет |
-| `python -m pytest -q` | 68 тестов прошли; ошибок и пропусков нет |
+| `python -m pytest -q` | 77 тестов прошли; ошибок и пропусков нет |
 | `scripts/gui_smoke.py`, Qt offscreen | Успех: реальный loopback TCP, фоновые снимки, SQLite, шесть страниц, Leaflet/WebChannel, пауза/возобновление, ручная TCP-диагностика, корректное завершение |
 | `scripts/map_smoke.py` | Успех: группировка, безопасные popup, выбор IP через Qt, лимит 100 из 1500 тестовых IP, очистка карты |
 | Системный сбор TCP/UDP через psutil | Проверен на настоящих локальных сокетах тестового процесса |
@@ -39,3 +39,7 @@ ICMP, перехват пакетов и скорости трафика по п
 Полный перечень целевых ручных проверок: [WINDOWS_CHECKLIST.md](WINDOWS_CHECKLIST.md).
 
 Изменения 0.2 и ограничения: [NETMAP_0.2.md](NETMAP_0.2.md).
+
+Версия 0.3: [функции и проверки](NETMAP_0.3.md), [измерения карты](MAP_PERFORMANCE_0.3.md). Windows 10/11 локально не проверены.
+
+Wheel 0.3.0 собран; проверено включение SearchOverlay, WindowControls, ClusterRenderer, PerformanceManager и SVG-ресурсов. Это не Windows EXE.

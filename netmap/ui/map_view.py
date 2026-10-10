@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from PySide6.QtCore import QObject, QUrl, Signal, Slot
+from PySide6.QtCore import QObject, QUrl, Signal, Slot, QTimer
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineProfileBuilder, QWebEngineSettings, QWebEngineUrlRequestInterceptor
 from PySide6.QtWebEngineWidgets import QWebEngineView
@@ -48,7 +48,7 @@ class MapView(QWebEngineView):
         builder.setHttpCacheType(QWebEngineProfile.HttpCacheType.DiskHttpCache)
         builder.setHttpCacheMaximumSize(64*1024*1024)
         self.profile = builder.createProfile("NetMapMap",self)
-        self.profile.setHttpUserAgent(self.profile.httpUserAgent()+" NetMap/0.2")
+        self.profile.setHttpUserAgent(self.profile.httpUserAgent()+" NetMap/0.3")
         self.policy = MapRequestPolicy(self.profile)
         self.profile.setUrlRequestInterceptor(self.policy)
         page = LocalMapPage(self.profile,self)
@@ -59,6 +59,10 @@ class MapView(QWebEngineView):
         page.setWebChannel(self.channel)
         page.settings().setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls,True)
         page.settings().setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls,True)
+        self.representation="points"
+        self.last_serialized=None
+        self.flush_timer=QTimer(self); self.flush_timer.setSingleShot(True); self.flush_timer.setInterval(250)
+        self.flush_timer.timeout.connect(self.flush)
         self.loaded = False
         self.pending = None
         self.loadFinished.connect(self._loaded)
@@ -76,11 +80,20 @@ class MapView(QWebEngineView):
         self.policy.online = settings.online_tiles
         if not self.loaded:
             return
+        if not self.flush_timer.isActive(): self.flush_timer.start()
+
+    def flush(self):
+        if not self.loaded or not self.pending: return
+        points,settings=self.pending
         payload = {"points": sorted(points,key=lambda p:not p["active"])[:settings.map_limit],"total_points":len(points),"limit": settings.map_limit,"animations": settings.animations,
-                   "tiles": settings.online_tiles,"mode":settings.mode,"palette":asdict(tokens(settings.theme)),
+                   "representation":self.representation,"performance":settings.map_performance,"tiles": settings.online_tiles,"mode":settings.mode,"palette":asdict(tokens(settings.theme)),
                    "origin": [settings.origin_lat,settings.origin_lon] if settings.origin_enabled else None}
-        self.page().runJavaScript("window.updateNetMap("+json.dumps(payload,ensure_ascii=True)+");")
+        serialized=json.dumps(payload,ensure_ascii=True)
+        if serialized==self.last_serialized: return
+        self.last_serialized=serialized
+        self.page().runJavaScript("window.updateNetMap("+serialized+");")
 
     def dispose(self):
+        self.flush_timer.stop()
         self.stop()
         self.page().deleteLater()

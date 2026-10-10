@@ -2,6 +2,7 @@ import ctypes
 import os
 from pathlib import Path
 from PySide6.QtGui import QIcon
+from netmap.ui.window_controls import WindowControls
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton
 
@@ -32,11 +33,11 @@ class TitleBar(QFrame):
         self.settings = self.button("", "Настройки", lambda: window.navigate(5))
         self.settings.setIcon(QIcon(str(Path(__file__).resolve().parents[1]/"resources/settings.svg")))
         layout.addWidget(self.settings)
-        self.minimize = self.button("−", "Свернуть", window.showMinimized)
-        self.maximize = self.button("□", "Развернуть / восстановить", self.toggle_maximize)
-        self.close_button = self.button("×", "Закрыть", window.close, "close")
-        for button in (self.minimize,self.maximize,self.close_button):
-            layout.addWidget(button)
+        self.controls=WindowControls(window)
+        self.minimize=self.controls.minimize
+        self.maximize=self.controls.maximize
+        self.close_button=self.controls.close_button
+        layout.addWidget(self.controls)
 
     def button(self, text, tooltip, action, name="window"):
         b = QPushButton(text)

@@ -12,6 +12,7 @@ from netmap.diagnostics.tcp import probe_tcp
 class MonitorWorker(QObject):
     updated = Signal(object)
     history_ready = Signal(object)
+    search_ready=Signal(object)
     diagnostics_ready = Signal(object)
     error = Signal(str)
     analytics_ready = Signal(object)
@@ -106,6 +107,12 @@ class MonitorWorker(QObject):
                 self.history_ready.emit({"query": query,"rows": rows,"total":self.store.history_count(**args)})
             except Exception as exc:
                 self.error.emit(f"Ошибка поиска истории: {exc}")
+
+    @Slot(object)
+    def query_search(self,request):
+        if self.store:
+            try: self.search_ready.emit({'id':request['id'],**self.store.search_catalog(request['term'])})
+            except Exception: self.error.emit('Не удалось прочитать результаты поиска.')
 
     @Slot(bool)
     def set_analytics_active(self,active):

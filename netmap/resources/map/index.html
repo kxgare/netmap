@@ -4,8 +4,8 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self' qrc:; script-src 'self' qrc:; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://tile.openstreetmap.org; connect-src 'none'; object-src 'none'">
 <link rel="stylesheet" href="leaflet.css"><link rel="stylesheet" href="map.css">
 </head><body><div id="map"></div>
-<div class="legend"><span class="dot active"></span> Наблюдается <span class="dot past"></span> История</div>
+<div class="legend"><span id="density-legend">Плотность IP: <i class="density-key"></i> меньше → больше · не оценка угрозы</span><br><span class="cluster-size small"></span> <span class="cluster-size large"></span> размер: число IP · <span class="dot active"></span> Наблюдается <span class="dot past"></span> История</div>
 <div id="counter">Ожидание наблюдений</div>
 <div id="empty">Карта сети<span>Выберите локальную базу GeoLite2 в настройках.<br>Адреса без координат доступны в разделе «Соединения».</span></div>
 <script src="leaflet.js"></script><script src="world.js"></script>
-<script src="qrc:///qtwebchannel/qwebchannel.js"></script><script src="map.js"></script></body></html>
+<script src="qrc:///qtwebchannel/qwebchannel.js"></script><script src="cluster_renderer.js"></script><script src="performance.js"></script><script src="map.js"></script></body></html>

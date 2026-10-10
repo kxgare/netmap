@@ -47,7 +47,7 @@ class ConnectionModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.ToolTipRole:
             return f"{c.process}\n{c.executable or 'Путь недоступен'}\n{c.location.reason}"
         if role == Qt.ItemDataRole.ForegroundRole and index.column() == 6:
-            return QColor("#6be4c1" if c.status == "ESTABLISHED" else "#91aac6")
+            return QColor("#83bf99" if c.status == "ESTABLISHED" else "#a3a79c")
 
     def update(self, connections):
         incoming = {c.key: c for c in connections}
@@ -77,17 +77,19 @@ class ConnectionFilter(QSortFilterProxyModel):
         self.search = ""
         self.protocol = ""
         self.app = ""
+        self.pid=None; self.state=""; self.family=""
         self.setSortRole(Qt.ItemDataRole.UserRole)
         self.setDynamicSortFilter(True)
 
-    def set_filters(self, search="", protocol="", app=""):
+    def set_filters(self, search="", protocol="", app="",pid=None,state="",family=""):
         self.beginFilterChange()
         self.search, self.protocol, self.app = search.casefold(), protocol, app
+        self.pid,self.state,self.family=pid,state,family
         self.endFilterChange(QSortFilterProxyModel.Direction.Rows)
 
     def filterAcceptsRow(self, row, parent):
         c = self.sourceModel().rows[row]
-        return matches(c,self.search,self.protocol,self.app)
+        return matches(c,self.search,self.protocol,self.app) and (self.pid is None or c.pid==self.pid) and (not self.state or c.status==self.state) and (not self.family or (":" in c.local_ip)==(self.family=="IPv6"))
 
 
 def matches(c: Connection, search="", protocol="", app=""):

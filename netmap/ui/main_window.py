@@ -23,6 +23,7 @@ class MainWindow(NativeFrameMixin,QMainWindow):
     enabled_requested = Signal(bool)
     configure_requested = Signal(object)
     history_requested = Signal(object)
+    search_requested=Signal(object)
     clear_requested = Signal()
     diagnostic_saved = Signal(object)
     analytics_active_requested=Signal(bool)
@@ -39,6 +40,9 @@ class MainWindow(NativeFrameMixin,QMainWindow):
         self.closing = False
         self.can_close = False
         self.poll_count = 0
+        from netmap.ui.typography import apply_typography
+        from PySide6.QtWidgets import QApplication
+        apply_typography(QApplication.instance())
         self.setWindowTitle("NetMap — Network Intelligence")
         self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
         self.setMinimumSize(980,640)
@@ -67,6 +71,8 @@ class MainWindow(NativeFrameMixin,QMainWindow):
         self.map_page.render()
         self.connections_page = ConnectionsPage()
         self.apps_page = AppsPage()
+        self.apps_page.set_favorites(settings.favorites)
+        self.apps_page.favorites_changed.connect(self.save_favorites)
         self.analytics_page = AnalyticsPage()
         self.analytics_page.run.setEnabled(settings.diagnostics_enabled)
         self.history_page = HistoryPage()
@@ -100,6 +106,14 @@ class MainWindow(NativeFrameMixin,QMainWindow):
         self.history_page.export_requested.connect(self.export_requested)
         self.connections_page.export_requested.connect(self.export_requested)
         self.settings_page.export_requested.connect(lambda:self.navigate(4))
+        from netmap.ui.search_overlay import SearchOverlay
+        from PySide6.QtGui import QShortcut,QKeySequence
+        self.search_overlay=SearchOverlay(self)
+        self.search_requested.connect(self.worker.query_search)
+        self.worker.search_ready.connect(self.search_overlay.history_results)
+        self.search_overlay.requested.connect(self.search_requested)
+        self.search_overlay.activated.connect(self.search_action)
+        self.search_shortcut=QShortcut(QKeySequence('Ctrl+K'),self); self.search_shortcut.activated.connect(self.search_overlay.open_search)
         self.worker.history_ready.connect(self.on_history)
         self.worker.diagnostics_ready.connect(self.analytics_page.show_diagnostics)
         self.enabled_requested.connect(self.worker.set_enabled)
@@ -111,12 +125,16 @@ class MainWindow(NativeFrameMixin,QMainWindow):
         self.worker.stopped.connect(self.thread.quit)
         self.thread.finished.connect(self.worker.deleteLater)
         self.thread.finished.connect(self.finish_close)
+        self.apps_page.ip_requested.connect(self.show_ip_map)
         self.apps_page.map_requested.connect(self.show_app_map)
         self.apps_page.connections_requested.connect(self.show_app_connections)
+        self.apps_page.open_history_requested.connect(self.show_app_history)
         self.connections_page.map_requested.connect(self.show_ip_map)
         self.connections_page.app_requested.connect(self.show_app)
         self.connections_page.history_requested.connect(self.show_ip_history)
         self.map_page.history_requested.connect(self.show_ip_history)
+        self.map_page.connections_requested.connect(self.show_ip_connections)
+        self.connections_page.ip_connections_requested.connect(self.show_ip_connections)
         self.map_page.settings_requested.connect(lambda:self.navigate(5))
         self.history_page.map_requested.connect(self.show_ip_map)
         self.history_page.app_requested.connect(self.show_app)
@@ -125,12 +143,15 @@ class MainWindow(NativeFrameMixin,QMainWindow):
         self.history_page.clear_requested.connect(self.confirm_clear)
         self.settings_page.clear_requested.connect(self.confirm_clear)
         self.settings_page.saved.connect(self.apply_settings)
+        self.analytics_page.map_requested.connect(self.show_ip_map)
         self.analytics_page.probe_requested.connect(self.start_probe)
         self.analytics_page.cancel_requested.connect(self.cancel_probe)
         self.title.pause.clicked.connect(self.toggle_monitor)
         self.set_mode(settings.mode, persist=False)
         self.navigate(0)
         self.update_status()
+        from netmap.ui.interaction import apply_interactions
+        apply_interactions(self)
         self.thread.start()
 
     def set_mode(self,mode,persist=True):
@@ -157,6 +178,25 @@ class MainWindow(NativeFrameMixin,QMainWindow):
         try: self.settings.save()
         except OSError: self.message.setText('Мастер завершён, но настройки не удалось сохранить.')
 
+    def search_action(self,action,value):
+        if action=='page': self.navigate(int(value))
+        elif action=='ip': self.show_ip_map(value)
+        elif action=='app': self.show_app(value)
+        elif action=='history': self.show_app_history(value)
+        elif action=='map': self.show_app_map(value)
+
+    def save_favorites(self,keys):
+        updated=replace(self.settings,favorites=keys)
+        try: updated.save()
+        except (OSError,ValueError):
+            self.message.notify('Не удалось сохранить избранное.'); return
+        self.settings=updated; self.settings_page.settings=updated; self.apps_page.set_favorites(keys)
+
+    def show_ip_connections(self,ip):
+        self.navigate(1); self.connections_page.apps.setCurrentIndex(0)
+        if self.settings.mode=='expert': self.connections_page.search.setText(ip)
+        else: self.connections_page.groups.search.setText(ip)
+
     def show_ip_map(self,ip):
         self.navigate(0); self.map_page.apps.setCurrentIndex(0); self.map_page.focus_ip(ip)
         self.history_requested.emit({"ip":ip,"limit":1,"_target":"map"})
@@ -164,20 +204,24 @@ class MainWindow(NativeFrameMixin,QMainWindow):
     def show_ip_history(self,ip):
         self.navigate(4); self.history_page.find_ip(ip)
 
+    def show_app_history(self,key):
+        self.navigate(4); self.history_page.filter_app(key)
+
     def show_app_map(self,key):
         self.navigate(0); self.map_page.filter_app(key)
 
     def show_app_connections(self,key):
         self.navigate(1)
+        index=self.connections_page.apps.findData(key)
+        if index>=0: self.connections_page.apps.setCurrentIndex(index)
         if self.settings.mode=='simple': self.connections_page.groups.select_app(key)
-        else:
-            index=self.connections_page.apps.findData(key)
-            if index>=0: self.connections_page.apps.setCurrentIndex(index)
 
     def show_app(self,key):
+        if not any(row['key']==key for row in self.apps_page.groups.model.rows):
+            self.show_app_history(key)
+            self.message.setText('Программа сейчас не наблюдается. Открыты её сохранённые сеансы.')
+            return
         self.navigate(2); self.apps_page.groups.select_app(key)
-        if not any(c.app_key==key for c in self.apps_page.connections):
-            self.message.setText('Эта программа сейчас не наблюдается. Её сеансы доступны в истории.')
 
     def showEvent(self,event):
         super().showEvent(event)
@@ -213,6 +257,7 @@ class MainWindow(NativeFrameMixin,QMainWindow):
         if not self.enabled or self.closing:
             return
         self.last_payload = payload
+        self.search_overlay.connections=payload['connections']
         self.connections_page.update_data(payload['connections'])
         self.apps_page.update_data(payload['connections'])
         self.map_page.update_data(payload,self.settings)
@@ -248,7 +293,9 @@ class MainWindow(NativeFrameMixin,QMainWindow):
 
     def apply_settings(self,settings):
         self.settings = settings
+        self.apps_page.set_favorites(settings.favorites)
         self.setStyleSheet(stylesheet(settings.theme))
+        self.title.controls.set_theme(settings.theme)
         self.set_mode(settings.mode, persist=False)
         self.update_status()
         self.configure_requested.emit(settings)

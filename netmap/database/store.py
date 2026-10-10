@@ -143,7 +143,24 @@ class HistoryStore:
         new_ips=self.db.execute('SELECT COUNT(*) FROM (SELECT remote_ip,MIN(first_seen) AS first FROM sessions WHERE IS_PUBLIC(remote_ip) GROUP BY remote_ip HAVING first >= ?)',args).fetchone()[0]
         unique=self.db.execute('SELECT COUNT(DISTINCT remote_ip) FROM sessions WHERE last_seen >= ? AND remote_ip != ?',(since,'' )).fetchone()[0]
         return {'seconds':seconds,'samples':samples,'apps':apps,'protocols':protocols,'countries':countries,
-                'new_ips':new_ips,'unique_ips':unique,'sample_count':count,'available':bool(count)}
+                'new_addresses':self.new_addresses(seconds,now),'new_ips':new_ips,'unique_ips':unique,'sample_count':count,'available':bool(count)}
+
+    def search_catalog(self,term,limit=30):
+        escaped=term.casefold().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern='%'+escaped+'%'
+        apps=[dict(r) for r in self.db.execute("SELECT process,executable,MAX(last_seen) AS last_seen FROM sessions WHERE CASEFOLD(process) LIKE ? ESCAPE '\\' OR CASEFOLD(executable) LIKE ? ESCAPE '\\' GROUP BY executable,process ORDER BY MAX(last_seen) DESC LIMIT ?",(pattern,pattern,limit))]
+        ips=[dict(r) for r in self.db.execute("SELECT remote_ip,MAX(last_seen) AS last_seen FROM sessions WHERE remote_ip != '' AND remote_ip LIKE ? ESCAPE '\\' GROUP BY remote_ip ORDER BY MAX(last_seen) DESC LIMIT ?",(pattern,limit))]
+        return {'apps':apps,'ips':ips}
+
+    def new_addresses(self,seconds=900,now=None,limit=100):
+        now=now or datetime.now(timezone.utc)
+        since=(now-timedelta(seconds=seconds)).isoformat(timespec='milliseconds') if seconds else ''
+        addresses=self.db.execute("SELECT remote_ip,MIN(first_seen) AS first_seen FROM sessions WHERE IS_PUBLIC(remote_ip) GROUP BY remote_ip HAVING MIN(first_seen) >= ? ORDER BY MIN(first_seen) DESC LIMIT ?",(since,limit)).fetchall()
+        result=[]
+        for address in addresses:
+            rows=self.db.execute('SELECT process,executable,country FROM sessions WHERE remote_ip=?',(address['remote_ip'],)).fetchall()
+            result.append({**dict(address),'apps':sorted({row['process'] for row in rows}),'country':next((row['country'] for row in rows if row['country']),'')})
+        return result
 
     def recent_map(self, limit=1000):
         return [dict(r) for r in self.db.execute("""SELECT * FROM sessions WHERE latitude IS NOT NULL

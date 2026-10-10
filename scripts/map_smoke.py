@@ -16,7 +16,7 @@ app=QApplication([])
 view=MapView()
 view.resize(1100,700)
 view.show()
-state={'data':False,'click':False,'limit':False,'clear':False,'reuse':False,'focus':False}
+state={'data':False,'click':False,'limit':False,'clear':False,'reuse':False,'focus':False,'unique':False,'density':False,'zoom':False,'deferred':False,'styles':False}
 fixture={'ip':'8.8.8.8','latitude':37.751,'longitude':-97.822,'country':'Тестовая запись','city':'',
          'accuracy_km':1000,'active':True,'connections':[{'process':'<test.exe>','pid':1,'protocol':'TCP','port':443,'status':'ESTABLISHED'}],
          'first':'2026-10-10T10:00:00+00:00','last':'2026-10-10T10:00:02+00:00'}
@@ -27,14 +27,14 @@ def checked(result):
     value=json.loads(result)
     state['data']=value['points']==3 and value['groups']==2 and value['escaped']
     print('MAP FIXTURE',value,flush=True)
-    view.page().runJavaScript("window.savedMarkers=[...objects.values()].map(item=>item.marker)")
+    view.page().runJavaScript("window.fixturePoint=payload.points[0];window.savedMarkers=[...objects.values()].map(item=>item.marker)")
     view.update_data(points,Settings())
     view.page().runJavaScript("JSON.stringify({reuse:savedMarkers.every(marker=>[...objects.values()].some(item=>item.marker===marker)),focus:window.focusIP('9.9.9.9')})",reused)
     view.page().runJavaScript("bridge.select('8.8.8.8')")
     # Limit protects total markers; a large input should not create one object per IP.
     many=[{**fixture,'ip':f'test-{i}'} for i in range(1500)]
     view.update_data(many,Settings(map_limit=100,origin_enabled=True))
-    QTimer.singleShot(300,check_limit)
+    QTimer.singleShot(650,check_limit)
 
 
 def reused(result):
@@ -48,8 +48,23 @@ def limited(result):
     value=json.loads(result)
     state['limit']='100 / 1500' in value['count'] and value['layers']<=5
     view.update_data([],Settings())
-    QTimer.singleShot(300,check_clear)
+    QTimer.singleShot(650,check_density)
 
+
+def check_density():
+    # Duplicate fixture IPs must count once, regardless of socket metadata.
+    view.page().runJavaScript("""payload={...payload,points:[...Array.from({length:25},(_,i)=>({...window.fixturePoint,ip:'unique-'+i})),window.fixturePoint,window.fixturePoint],limit:1000,representation:'density'};draw();JSON.stringify({unique:document.getElementById('counter').textContent.includes('26 /'),density:map.hasLayer(densityLayer)&&densityLayer.canvas.width>0})""",density_checked)
+
+def density_checked(result):
+    value=json.loads(result);state['unique']=value['unique'];state['density']=value['density']
+    view.page().runJavaScript("""payload={...payload,points:[{...window.fixturePoint,ip:'a',latitude:20,longitude:0},{...window.fixturePoint,ip:'b',latitude:20,longitude:1}],representation:'points'};map.setZoom(2,{animate:false});draw();const low=objects.size;map.setZoom(10,{animate:false});draw();const zoom=objects.size>low;clusterRenderer.prepare([2,3,10,100]);const small=clusterRenderer.style(2),large=clusterRenderer.style(100);const before=mapPerformance.updates;map.fire('movestart');updateNetMap(payload);JSON.stringify({zoom,styles:large.size>small.size&&large.color!==small.color,deferred:scheduler.moving&&scheduler.pending&&mapPerformance.updates===before})""",map_checked)
+
+def map_checked(result):
+    value=json.loads(result)
+    for key in ('zoom','styles','deferred'):state[key]=value[key]
+    view.page().runJavaScript("map.fire('moveend')")
+    view.last_serialized=None;view.update_data([],Settings())
+    QTimer.singleShot(650,check_clear)
 
 def check_clear():
     view.page().runJavaScript("JSON.stringify({empty:document.getElementById('empty').style.display,layers:layer.getLayers().length})",cleared)

@@ -9,6 +9,7 @@ from netmap.ui.map_view import MapView
 class MapPage(QWidget):
     history_requested=Signal(str)
     settings_requested=Signal()
+    connections_requested=Signal(str)
     def __init__(self):
         super().__init__()
         self.connections=[]; self.historical=[]; self.settings=None; self.selected_ip=None; self.mode='simple'
@@ -22,12 +23,15 @@ class MapPage(QWidget):
         tools=QHBoxLayout()
         self.apps=QComboBox(); self.apps.addItem('Все программы',''); self.apps.setMinimumWidth(200)
         self.recent=QComboBox(); self.recent.addItem('Последние адреса',''); self.recent.setMinimumWidth(200)
-        tools.addWidget(self.apps); tools.addWidget(self.recent); tools.addStretch()
+        tools.addWidget(self.apps); tools.addWidget(self.recent)
+        self.representation=QComboBox(); self.representation.addItem('Точки','points'); self.representation.addItem('Плотность','density'); self.representation.setToolTip('Пространственная концентрация уникальных публичных IP. Цвет не оценивает угрозы. Щёлкните рядом с адресом, чтобы открыть сведения.')
+        self.representation.currentIndexChanged.connect(self.change_representation)
+        tools.addWidget(self.representation); tools.addStretch()
         tools.addWidget(label('● Сейчас   ○ Ранее','subheading'))
         layout.addLayout(tools)
         split=QSplitter(); self.map=MapView(); self.panel=ContextPanel('Удалённый адрес'); self.detail=self.panel.content
         self.panel.closed.connect(lambda:setattr(self,'selected_ip',None))
-        self.detail.anchorClicked.connect(lambda url:self.select_ip(self.selected_ip,True))
+        self.detail.anchorClicked.connect(self.ip_action)
         history=QPushButton('Найти в истории'); history.clicked.connect(lambda:self.history_requested.emit(self.selected_ip or ''))
         self.panel.actions.addWidget(history)
         split.addWidget(self.map); split.addWidget(self.panel); split.setSizes([1000,310]); layout.addWidget(split,1)
@@ -39,6 +43,9 @@ class MapPage(QWidget):
         self.recent.activated.connect(lambda:self.focus_ip(self.recent.currentData()))
         self.map.bridge.selected.connect(self.select_ip)
         self.map.ready.connect(lambda ok:self.notice.setText('Локальная карта недоступна. Откройте «Соединения».') if not ok else None)
+    def change_representation(self):
+        self.map.representation=self.representation.currentData(); self.render()
+
     def set_mode(self,mode):
         self.mode=mode
         if self.selected_ip: self.select_ip(self.selected_ip)
@@ -55,17 +62,22 @@ class MapPage(QWidget):
         if not ip: return
         self.select_ip(ip)
         import json
+        self.map.flush()
         self.map.page().runJavaScript('window.focusIP('+json.dumps(ip)+')',lambda ok:self.notice.setText('Адрес не отображён: координаты отсутствуют или достигнут лимит карты. Сведения показаны справа.') if not ok else None)
     def select_ip(self,ip,technical=False):
         if not ip: return
         self.selected_ip=ip; app=self.apps.currentData()
         rows=[c for c in self.connections if c.remote_ip==ip and (not app or c.app_key==app)]
-        if rows:
-            renderer=connection_html if technical or self.mode=='expert' else simple_connection_html
-            self.panel.show_html('<hr>'.join(renderer(c) for c in rows))
-        else:
-            past=[r for r in self.historical if r['remote_ip']==ip and (not app or (r['executable'] or r['process'])==app)]
-            self.panel.show_html('<h2>'+html.escape(ip)+'</h2><p>Текущее подключение не наблюдается.</p>'+''.join('<p>'+html.escape(r['process'])+' · '+html.escape(r['country'] or 'страна не определена')+'</p>' for r in past[:20]))
+        from netmap.ui.ip_details import ip_html
+        self.panel.show_html(ip_html(ip,rows,self.historical))
+    def ip_action(self,url):
+        action,_,ip=url.toString().partition(':')
+        if action=='copy':
+            from PySide6.QtWidgets import QApplication
+            QApplication.clipboard().setText(ip)
+        elif action=='map': self.focus_ip(ip)
+        elif action=='history': self.history_requested.emit(ip)
+        elif action=='connections': self.connections_requested.emit(ip)
     def update_data(self,payload,settings):
         self.connections=payload['connections']; self.historical=payload['historical']; self.settings=settings
         stats=payload['stats']

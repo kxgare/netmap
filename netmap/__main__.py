@@ -8,8 +8,10 @@ from netmap.core.settings import Settings, data_dir
 
 def main():
     app = QApplication(sys.argv)
+    from netmap.ui.typography import apply_typography
+    apply_typography(app)
     app.setApplicationName("NetMap")
-    app.setApplicationVersion("0.2.0")
+    app.setApplicationVersion("0.3.0")
     app.setOrganizationName("NetMap")
     app.setApplicationDisplayName("NetMap — Network Intelligence")
     path = data_dir()

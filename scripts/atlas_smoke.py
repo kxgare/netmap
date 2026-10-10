@@ -1,4 +1,4 @@
-"""Version 0.2 interactions and screenshots, using only live collected data."""
+"""Version 0.3 interactions and screenshots, using only live collected data."""
 import json,os,tempfile,socket
 from dataclasses import replace
 from pathlib import Path
@@ -11,7 +11,7 @@ from netmap.ui.main_window import MainWindow
 server=socket.socket();server.bind(("127.0.0.1",0));server.listen(1)
 app=QApplication([])
 window=MainWindow(Settings(interval=.5,onboarding_done=True)); window.show()
-state={'modes':False,'navigation':False,'theme':False,'small':False,'history':False,'shutdown':False}
+state={'modes':False,'navigation':False,'theme':False,'small':False,'history':False,'shutdown':False,'routes':False,'favorites':False,'search':False}
 errors=[]
 window.worker.error.connect(errors.append)
 root=Path(os.environ['NETMAP_DATA_DIR'])
@@ -21,6 +21,19 @@ def capture(name):
 
 def interactions():
     capture('atlas-initial')
+    if not window.last_payload or not window.last_payload['connections']: raise AssertionError('No live observations')
+    key=window.last_payload['connections'][0].app_key
+    window.show_app(key);capture('atlas-apps');window.show_app_map(key)
+    mapped=window.pages.currentIndex()==0 and window.map_page.apps.currentData()==key
+    window.show_app_connections(key)
+    capture('atlas-connections')
+    connected=window.pages.currentIndex()==1 and window.connections_page.groups.current() is not None
+    window.show_app_history(key)
+    state['routes']=mapped and connected and window.history_page.app_filter==key
+    window.save_favorites([key]);state['favorites']=Settings.load().favorites==[key]
+    window.search_shortcut.activated.emit();state['search']=window.search_overlay.isVisible() and window.search_overlay.results.count()>0
+    window.search_overlay.reject();window.map_page.apps.setCurrentIndex(0);window.connections_page.apps.setCurrentIndex(0)
+
     page=window.connections_page
     window.navigate(1); window.set_mode('expert'); page.search.setText('127')
     page.table.setCurrentIndex(page.proxy.index(0,0))

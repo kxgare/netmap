@@ -47,6 +47,8 @@ class SettingsPage(QWidget):
             self.map_limit.addItem(f"Не более {count} адресов",count)
         self.map_limit.setCurrentIndex(self.map_limit.findData(settings.map_limit))
         form.addRow("Производительность карты",self.map_limit)
+        self.map_performance=self.check("Показывать время обновления карты",settings.map_performance)
+        form.addRow("Диагностический режим",self.map_performance)
         pathrow = QHBoxLayout()
         self.geo = QLineEdit(settings.geo_path)
         self.geo.setPlaceholderText("GeoLite2-City.mmdb")
@@ -127,7 +129,7 @@ class SettingsPage(QWidget):
 
     def apply(self):
         settings = replace(self.settings, theme=self.theme.currentData(),mode=self.interface_mode.currentData(), interval=self.interval.value(),autostart=self.autostart.isChecked(),
-                animations=self.animations.isChecked(),map_limit=self.map_limit.currentData(),geo_path=self.geo.text().strip(),
+                animations=self.animations.isChecked(),map_performance=self.map_performance.isChecked(),map_limit=self.map_limit.currentData(),geo_path=self.geo.text().strip(),
                 retention_days=self.days.value(),origin_enabled=self.origin.isChecked(),origin_lat=self.lat.value(),
                 origin_lon=self.lon.value(),online_tiles=self.tiles.isChecked(),diagnostics_enabled=self.diagnostics.isChecked(),
                 diagnostic_count=self.count.value(),diagnostic_timeout=self.timeout.value())
