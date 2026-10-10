@@ -1,103 +1,69 @@
-from collections import defaultdict
 import html
-from PySide6.QtCore import QFileInfo, Qt, Signal
-from PySide6.QtWidgets import QFileIconProvider, QHBoxLayout, QListWidget, QListWidgetItem, QSplitter, QTextBrowser, QVBoxLayout, QWidget
-from netmap.ui.common import label, page_header
-from netmap.ui.table import display_time
-
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import QWidget,QVBoxLayout,QSplitter,QPushButton,QTableView
+from netmap.ui.groups import GroupsView
+from netmap.ui.context import ContextPanel
+from netmap.ui.common import page_header,friendly_name,setup_table
+from netmap.ui.table import ConnectionModel,ConnectionFilter,display_time
 
 class AppsPage(QWidget):
-    history_requested = Signal(object)
+    history_requested=Signal(object)
+    map_requested=Signal(str)
+    connections_requested=Signal(str)
     def __init__(self):
-        super().__init__()
-        self.connections = []
-        self.history_payload = None
-        self.icons = {}
-        self.provider = QFileIconProvider()
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(28,24,28,24)
-        page_header(layout,"Приложения","Программы, чьи сетевые сокеты доступны для наблюдения")
-        split = QSplitter()
-        self.list = QListWidget()
-        self.list.setMinimumWidth(310)
-        self.detail = QTextBrowser()
-        split.addWidget(self.list)
-        split.addWidget(self.detail)
-        split.setSizes([380,800])
-        layout.addWidget(split,1)
-        layout.addWidget(label("Иконки извлекаются из доступных исполняемых файлов. Недоступные процессы отображаются без вымышленных иконок.","subheading",True))
-        self.list.currentItemChanged.connect(self.selection)
-
-    def update_data(self, connections):
-        self.connections = connections
-        old = self.list.currentItem().data(Qt.ItemDataRole.UserRole) if self.list.currentItem() else None
-        grouped = defaultdict(list)
-        for c in connections:
-            grouped[c.app_key].append(c)
-        scroll = self.list.verticalScrollBar().value()
-        self.list.blockSignals(True)
-        self.list.clear()
-        for key,rows in sorted(grouped.items(),key=lambda p:-len(p[1])):
-            ips = {c.remote_ip for c in rows if c.remote_ip}
-            item = QListWidgetItem(f"{rows[0].process}\n{len(rows)} сокетов · {len(ips)} удалённых IP")
-            item.setData(Qt.ItemDataRole.UserRole,key)
-            if rows[0].executable:
-                if key not in self.icons:
-                    if len(self.icons)>=256:
-                        self.icons.clear()
-                    self.icons[key] = self.provider.icon(QFileInfo(rows[0].executable))
-                item.setIcon(self.icons[key])
-            self.list.addItem(item)
-            if old == key:
-                self.list.setCurrentItem(item)
-        self.list.blockSignals(False)
-        self.list.verticalScrollBar().setValue(scroll)
-        if not self.list.currentItem() and self.list.count():
-            self.list.setCurrentRow(0)
-        elif self.list.currentItem():
-            self.render()
-        else:
-            self.detail.setHtml("<h3>Нет доступных приложений</h3><p>Дождитесь следующего опроса.</p>")
-
-    def selection(self):
-        self.history_payload = None
-        self.render()
-        self.request_history()
-
+        super().__init__(); self.mode='simple'; self.connections=[]; self.history_payload=None; self.selected_key=None
+        layout=QVBoxLayout(self); layout.setContentsMargins(24,22,24,20)
+        page_header(layout,'Приложения','Сетевая активность ваших программ')
+        split=QSplitter(); self.groups=GroupsView(); self.panel=ContextPanel('Программа')
+        self.panel.setMaximumWidth(700); self.detail=self.panel.content
+        self.table=QTableView(); self.model=ConnectionModel(self); self.proxy=ConnectionFilter(self); self.proxy.setSourceModel(self.model)
+        self.table.setModel(self.proxy); setup_table(self.table); self.table.setMinimumHeight(240)
+        self.panel.layout().insertWidget(2,self.table,1); self.table.hide()
+        for title,signal in [('На карте',self.map_requested),('Соединения',self.connections_requested)]:
+            button=QPushButton(title); button.clicked.connect(lambda checked=False,target=signal:target.emit(self.selected_key or '')); self.panel.actions.addWidget(button)
+        split.addWidget(self.groups); split.addWidget(self.panel); layout.addWidget(split,1)
+        self.groups.selected.connect(self.select_app); self.panel.closed.connect(lambda:setattr(self,'selected_key',None))
+    def select_app(self,key):
+        self.selected_key=key; self.history_payload=None; self.render(); self.request_history()
     def request_history(self):
-        item = self.list.currentItem()
-        if item:
-            self.history_requested.emit({"app":item.data(Qt.ItemDataRole.UserRole),"limit":100,"_target":"app"})
-
+        if self.selected_key: self.history_requested.emit({'app':self.selected_key,'limit':100,'_target':'app'})
+    def update_data(self,connections):
+        self.connections=connections; self.groups.update_data(connections); self.model.update(connections)
+        if self.selected_key: self.render()
+    def set_mode(self,mode):
+        self.mode=mode; self.table.setVisible(mode=='expert' and self.selected_key is not None)
+        if self.selected_key: self.render()
     def render(self):
-        item = self.list.currentItem()
-        if not item:
-            return
-        key = item.data(Qt.ItemDataRole.UserRole)
-        rows = [c for c in self.connections if c.app_key==key]
+        rows=[c for c in self.connections if c.app_key==self.selected_key]
         if not rows:
-            return
-        esc = html.escape
-        countries = sorted({c.location.country for c in rows if c.location.country})
-        text = '<h2>'+esc(rows[0].process)+'</h2><p>'+esc(rows[0].executable or "Путь к исполняемому файлу недоступен")+'</p>'
-        text += '<p>Последнее наблюдение: '+display_time(max(c.observed for c in rows))+'</p>'
-        text += '<p>География: '+esc(', '.join(countries) or "Геолокация не определена")+'</p><h3>Связанные сокеты</h3>'
-        text += ''.join('<p>PID '+str(c.pid or '—')+' · '+esc(c.protocol)+' · '+esc(c.local_address)+' → '+esc(c.remote_address)+'<br>'+esc(c.status)+'</p>' for c in rows)
-        text += '<h3>Удалённые серверы</h3><p>'+esc(', '.join(sorted({c.remote_ip for c in rows if c.remote_ip})) or "Не обнаружены")+'</p>'
-        self.base_html = text
-        scroll = self.detail.verticalScrollBar().value()
-        self.detail.setHtml(text)
-        self.detail.verticalScrollBar().setValue(scroll)
-        if self.history_payload:
-            self.show_history(self.history_payload)
-
-    def show_history(self, payload):
-        item = self.list.currentItem()
-        if not item or payload['query'].get('app') != item.data(Qt.ItemDataRole.UserRole):
-            return
-        self.history_payload = payload
-        text = self.base_html+'<h3>Последние сеансы приложения (до 100)</h3>'
-        text += ''.join('<p>'+html.escape(r['remote_ip'] or r['local_ip'])+' · '+html.escape(r['protocol'])+' · '+display_time(r['last_seen'])+'</p>' for r in payload['rows'])
-        scroll = self.detail.verticalScrollBar().value()
-        self.detail.setHtml(text)
-        self.detail.verticalScrollBar().setValue(scroll)
+            self.panel.hide(); return
+        esc=html.escape; countries=sorted({c.location.country for c in rows if c.location.country})
+        ips=sorted({c.remote_ip for c in rows if c.remote_ip})
+        from netmap.geo.resolver import public_ip
+        local=sum(not public_ip(c.remote_ip) for c in rows)
+        text='<h2>'+esc(friendly_name(rows[0].process))+'</h2>'
+        text+=f'<p>{len(rows)} наблюдаемых сокетов · {len(ips)} удалённых IP</p><p>Последняя активность: {display_time(max(c.observed for c in rows))}</p>'
+        text+='<h3>География</h3><p>'+esc(', '.join(countries) or 'Страны не определены')+'</p>'
+        text+='<h3>Удалённые адреса</h3><p>'+esc(', '.join(ips) or 'Не обнаружены')+'</p>'
+        text+=f'<p>Локальные и служебные сокеты: {local}. Технические строки доступны в экспертном режиме.</p>'
+        if self.mode=='expert':
+            text+='<p>'+esc(rows[0].executable or 'Путь недоступен')+'</p><h3>Группы по адресам</h3>'
+            from collections import defaultdict
+            addresses=defaultdict(list)
+            for c in rows: addresses[c.remote_ip or 'Локальные сокеты'].append(c)
+            for ip,members in sorted(addresses.items()):
+                pids=', '.join(str(p) for p in sorted({c.pid for c in members if c.pid is not None})) or 'недоступен'
+                protocols=', '.join(sorted({c.protocol for c in members}))
+                ports=', '.join(str(p) for p in sorted({c.remote_port for c in members if c.remote_ip})) or '—'
+                states=', '.join(sorted({c.status for c in members}))
+                text+='<p><b>'+esc(ip)+f' · {len(members)} сокетов</b><br>PID: '+esc(pids)+'<br>'+esc(protocols)+' · порты: '+esc(ports)+'<br>'+esc(states)+'</p>'
+        self.base_html=text
+        if self.history_payload: text+=self.history_html(self.history_payload['rows'])
+        self.panel.show_html(text); self.table.setVisible(self.mode=='expert')
+        self.proxy.set_filters(app=self.selected_key)
+    def history_html(self,rows):
+        return '<h3>Последние сеансы (до 100)</h3>'+''.join('<p>'+html.escape(r['remote_ip'] or r['local_ip'])+' · '+display_time(r['first_seen'])+' → '+display_time(r['last_seen'])+'</p>' for r in rows[:100])
+    def show_history(self,payload):
+        if payload['query'].get('app')!=self.selected_key: return
+        self.history_payload=payload
+        if hasattr(self,'base_html'): self.panel.show_html(self.base_html+self.history_html(payload['rows']))

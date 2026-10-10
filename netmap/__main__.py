@@ -9,6 +9,7 @@ from netmap.core.settings import Settings, data_dir
 def main():
     app = QApplication(sys.argv)
     app.setApplicationName("NetMap")
+    app.setApplicationVersion("0.2.0")
     app.setOrganizationName("NetMap")
     app.setApplicationDisplayName("NetMap — Network Intelligence")
     path = data_dir()

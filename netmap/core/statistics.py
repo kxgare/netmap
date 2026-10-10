@@ -11,7 +11,7 @@ def statistics(connections):
     countries = Counter(loc.country or "Не определена" for loc in public.values())
     return {"total": len(connections), "protocols": dict(protocols),
             "apps": dict(apps.most_common(10)), "unique_ips": len(ips),
-            "public_ips": len(public), "countries": dict(countries.most_common(10)),
+            "public_ips": len(public), "countries": dict(countries.most_common(10)),"countries_count":len([name for name in countries if name!="Не определена"]),
             "mapped": sum(loc.mapped for loc in public.values())}
 
 

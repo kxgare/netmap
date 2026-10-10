@@ -5,6 +5,8 @@ from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineProfileBuilder, QWebEngineSettings, QWebEngineUrlRequestInterceptor
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from netmap.core.settings import data_dir
+from netmap.ui.theme import tokens
+from dataclasses import asdict
 
 
 class MapBridge(QObject):
@@ -46,7 +48,7 @@ class MapView(QWebEngineView):
         builder.setHttpCacheType(QWebEngineProfile.HttpCacheType.DiskHttpCache)
         builder.setHttpCacheMaximumSize(64*1024*1024)
         self.profile = builder.createProfile("NetMapMap",self)
-        self.profile.setHttpUserAgent(self.profile.httpUserAgent()+" NetMap/0.1")
+        self.profile.setHttpUserAgent(self.profile.httpUserAgent()+" NetMap/0.2")
         self.policy = MapRequestPolicy(self.profile)
         self.profile.setUrlRequestInterceptor(self.policy)
         page = LocalMapPage(self.profile,self)
@@ -74,8 +76,8 @@ class MapView(QWebEngineView):
         self.policy.online = settings.online_tiles
         if not self.loaded:
             return
-        payload = {"points": points,"limit": settings.map_limit,"animations": settings.animations,
-                   "tiles": settings.online_tiles,
+        payload = {"points": sorted(points,key=lambda p:not p["active"])[:settings.map_limit],"total_points":len(points),"limit": settings.map_limit,"animations": settings.animations,
+                   "tiles": settings.online_tiles,"mode":settings.mode,"palette":asdict(tokens(settings.theme)),
                    "origin": [settings.origin_lat,settings.origin_lon] if settings.origin_enabled else None}
         self.page().runJavaScript("window.updateNetMap("+json.dumps(payload,ensure_ascii=True)+");")
 

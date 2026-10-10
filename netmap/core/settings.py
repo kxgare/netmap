@@ -16,6 +16,9 @@ def data_dir() -> Path:
 
 @dataclass
 class Settings:
+    theme: str = "dark"
+    mode: str = "simple"
+    onboarding_done: bool = False
     interval: float = 2.0
     autostart: bool = True
     animations: bool = True
@@ -31,7 +34,9 @@ class Settings:
     diagnostic_timeout: float = 2.0
 
     def validate(self):
-        bool_names = ("autostart", "animations", "origin_enabled", "online_tiles", "diagnostics_enabled")
+        if self.theme not in ("dark", "light") or self.mode not in ("simple", "expert"):
+            raise ValueError("Неизвестная тема или режим")
+        bool_names = ("onboarding_done", "autostart", "animations", "origin_enabled", "online_tiles", "diagnostics_enabled")
         if any(type(getattr(self, n)) is not bool for n in bool_names):
             raise ValueError("Некорректное логическое значение настройки")
         if not isinstance(self.geo_path, str):

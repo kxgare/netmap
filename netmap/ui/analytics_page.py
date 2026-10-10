@@ -1,12 +1,13 @@
 import html
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QHBoxLayout, QLineEdit, QPushButton, QScrollArea, QSpinBox, QTextBrowser, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLineEdit, QPushButton, QScrollArea, QSpinBox, QTextBrowser, QVBoxLayout, QWidget
 from netmap.ui.common import card, label, metric, page_header
 from netmap.widgets.charts import Bars, Timeline
 from netmap.ui.table import display_time
 
 
 class AnalyticsPage(QWidget):
+    period_requested = Signal(int)
     probe_requested = Signal(str,int)
     cancel_requested = Signal()
     def __init__(self):
@@ -19,37 +20,44 @@ class AnalyticsPage(QWidget):
         layout = QVBoxLayout(content)
         layout.setContentsMargins(28,24,28,24)
         page_header(layout,"Аналитика","Статистика наблюдаемых сокетов · число соединений не является объёмом трафика")
+        self.mode='simple'
+        self.period=QComboBox()
+        for text,seconds in [('Последние 15 минут',900),('Последний час',3600),('Последний день',86400),('Доступная история',0)]: self.period.addItem(text,seconds)
+        self.period.currentIndexChanged.connect(lambda:self.period_requested.emit(self.period.currentData()))
+        layout.addWidget(self.period)
         row = QHBoxLayout()
         self.metrics = {}
-        for key,title in [("total","Сокетов сейчас"),("new","Новых за опрос"),("unique_ips","Уникальных IP сейчас")]:
+        for key,title in [("total","Сейчас подключений"),("new","Новых публичных IP за период"),("unique_ips","Удалённых IP за период")]:
             frame,value = metric(title)
             self.metrics[key]=value
             row.addWidget(frame)
         layout.addLayout(row)
         self.timeline = Timeline()
-        layout.addWidget(card("Соединения во времени · голубой: всего / фиолетовый: новых · последние 180 опросов",self.timeline))
+        layout.addWidget(card("Подключения во времени · основная линия: всего / янтарная: новые наблюдения · единица: сокеты",self.timeline))
         row = QHBoxLayout()
         self.apps,self.protocols,self.countries = Bars(),Bars(),Bars()
-        row.addWidget(card("Топ приложений · сокеты",self.apps))
-        row.addWidget(card("Протоколы · сокеты",self.protocols))
+        row.addWidget(card("Программы · сеансы за период",self.apps))
+        row.addWidget(card("Протоколы · сеансы за период",self.protocols))
         layout.addLayout(row)
-        layout.addWidget(card("Страны · уникальные публичные IP текущего опроса",self.countries))
+        layout.addWidget(card("География · публичные IP за период",self.countries))
         diag = QWidget()
         d = QVBoxLayout(diag)
         d.setContentsMargins(0,0,0,0)
-        d.addWidget(label("Ручная TCP-проверка: время установления соединения, не ICMP RTT. Доля неудач не равнозначна потерям пакетов. Запросы выполняются только после нажатия кнопки; сервер увидит ваш IP.","subheading",True))
+        self.diagnostic_hint=label("Ручная TCP-проверка: время установления соединения, не ICMP RTT. Доля неудач не равнозначна потерям пакетов. Запросы выполняются только после нажатия кнопки; сервер увидит ваш IP.","subheading",True)
+        d.addWidget(self.diagnostic_hint)
         toolbar = QHBoxLayout()
         self.host = QLineEdit()
         self.host.setPlaceholderText("IP или домен для ручной проверки")
         self.port = QSpinBox()
         self.port.setRange(1,65535)
         self.port.setValue(443)
-        self.run = QPushButton("Проверить TCP")
+        self.run = QPushButton("Проверить соединение")
         self.run.setObjectName("primary")
         self.cancel = QPushButton("Остановить")
         self.cancel.setEnabled(False)
         toolbar.addWidget(self.host,1)
-        toolbar.addWidget(label("Порт"))
+        self.port_label=label("Порт")
+        toolbar.addWidget(self.port_label)
         toolbar.addWidget(self.port)
         toolbar.addWidget(self.run)
         toolbar.addWidget(self.cancel)
@@ -65,15 +73,25 @@ class AnalyticsPage(QWidget):
         scroll.setWidget(content)
         outer.addWidget(scroll)
 
-    def update_data(self, payload):
-        for key,value in self.metrics.items():
-            value.setText(str(payload['new'] if key=='new' else payload['stats'][key]))
+    def update_data(self,payload):
+        self.metrics['total'].setText(str(payload['stats']['total']))
+
+    def set_mode(self,mode):
+        self.mode=mode; self.port.setVisible(mode=='expert'); self.port_label.setVisible(mode=='expert')
+        self.run.setText('Проверить TCP' if mode=='expert' else 'Проверить соединение')
+        self.diagnostic_hint.setText('Проверка открывает соединение к выбранному адресу. Сервер видит ваш IP. Измеряется время TCP-подключения, а не ICMP-пинг.' if mode=='simple' else 'TCP: минимум, среднее, максимум времени установления соединения и доля неудачных попыток. Это не ICMP RTT и не потери пакетов.')
+        if hasattr(self,'diagnostic_results'): self.show_diagnostics(self.diagnostic_results)
+
+    def show_period(self,payload):
+        if payload['seconds']!=self.period.currentData(): return
+        self.metrics['new'].setText(str(payload['new_ips']) if payload['available'] else '—')
+        self.metrics['unique_ips'].setText(str(payload['unique_ips']) if payload['available'] else '—')
+        self.metrics['new'].setToolTip('IP впервые появился в выбранном периоде относительно сохранённой истории. Удалённая история не учитывается.')
         self.timeline.set_samples(payload['samples'])
-        self.apps.set_values(payload['stats']['apps'])
-        self.protocols.set_values(payload['stats']['protocols'])
-        self.countries.set_values(payload['stats']['countries'])
+        self.apps.set_values(payload['apps']); self.protocols.set_values(payload['protocols']); self.countries.set_values(payload['countries'])
 
     def show_diagnostics(self, results):
+        self.diagnostic_results=results
         text = ''
         for r in results:
             esc = html.escape
@@ -83,6 +101,6 @@ class AnalyticsPage(QWidget):
             text += '<p>Минимум / среднее / максимум: '+' / '.join(str(r[k]) if r[k] is not None else '—' for k in ('min_ms','avg_ms','max_ms'))+' мс</p>'
             if r.get('cancelled'):
                 text += '<p>Проверка остановлена пользователем.</p>'
-            if any(r.get('errors',[])):
+            if self.mode=='expert' and any(r.get('errors',[])):
                 text += '<p>'+esc(next(e for e in r['errors'] if e))+'</p>'
         self.results.setHtml(text or '<p>Сохранённых проверок нет.</p>')

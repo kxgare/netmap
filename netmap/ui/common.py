@@ -30,7 +30,10 @@ def card(title, widget):
 
 def metric(title):
     value = label("0","metric")
-    return card(title,value),value
+    block=card(title,value)
+    block.setObjectName("metricBlock")
+    block.layout().setContentsMargins(0,8,20,8)
+    return block,value
 
 
 def setup_table(table: QTableView):
@@ -47,16 +50,31 @@ def setup_table(table: QTableView):
 
 def connection_html(c):
     esc = lambda s: html.escape(str(s))
-    fields = [("Приложение",c.process),("PID",c.pid if c.pid is not None else "—"),
+    fields = [("Приложение",c.process),("PID",c.pid if c.pid is not None else "—"),("Идентификатор наблюдения",c.key),
               ("Исполняемый файл",c.executable or "Недоступен"),("Протокол",c.protocol),
               ("Локальный адрес",c.local_address),("Удалённый адрес",c.remote_address),("Состояние",c.status),
               ("Страна",c.location.country or "Не определена"),("Город",c.location.city or "Не определён"),
               ("Первое обнаружение",display_time(c.first_seen or c.observed)),
               ("Последнее обнаружение",display_time(c.observed))]
-    content = '<h2 style="color:#6ed5ed">'+esc(c.remote_ip or "Локальный сокет")+'</h2>'
-    content += ''.join('<p><span style="color:#819bb9">'+esc(k)+'</span><br>'+esc(v)+'</p>' for k,v in fields)
+    content = '<h2 >'+esc(c.remote_ip or "Локальный сокет")+'</h2>'
+    content += ''.join('<p><span>'+esc(k)+'</span><br>'+esc(v)+'</p>' for k,v in fields)
     if c.location.mapped:
         content += '<p>Геолокация приблизительная'+(f' · радиус {c.location.accuracy_km} км' if c.location.accuracy_km else '')+'.</p>'
     else:
         content += '<p>'+esc(c.location.reason or "Координаты недоступны")+'</p>'
     return content
+
+
+def friendly_name(name):
+    # Strip only the executable extension: never invent an app/product identity.
+    return name[:-4] if name.lower().endswith('.exe') else name
+
+
+def simple_connection_html(c):
+    name=html.escape(friendly_name(c.process))
+    text=f'<h2>{name}</h2><p>{"Удалённый адрес наблюдается" if c.remote_ip else "Локальный сетевой сокет"}</p>'
+    text+='<p>'+html.escape(c.remote_ip or c.local_ip)+'</p>'
+    text+='<p>Страна: '+html.escape(c.location.country or 'не определена')+'</p>'
+    text+='<p>Геолокация приблизительная и не определяет владельца сервера.</p>'
+    text+='<p><a href="technical">Показать технические сведения</a></p>'
+    return text

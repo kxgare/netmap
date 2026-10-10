@@ -16,7 +16,7 @@ app=QApplication([])
 view=MapView()
 view.resize(1100,700)
 view.show()
-state={'data':False,'click':False,'limit':False,'clear':False}
+state={'data':False,'click':False,'limit':False,'clear':False,'reuse':False,'focus':False}
 fixture={'ip':'8.8.8.8','latitude':37.751,'longitude':-97.822,'country':'Тестовая запись','city':'',
          'accuracy_km':1000,'active':True,'connections':[{'process':'<test.exe>','pid':1,'protocol':'TCP','port':443,'status':'ESTABLISHED'}],
          'first':'2026-10-10T10:00:00+00:00','last':'2026-10-10T10:00:02+00:00'}
@@ -27,12 +27,18 @@ def checked(result):
     value=json.loads(result)
     state['data']=value['points']==3 and value['groups']==2 and value['escaped']
     print('MAP FIXTURE',value,flush=True)
+    view.page().runJavaScript("window.savedMarkers=[...objects.values()].map(item=>item.marker)")
+    view.update_data(points,Settings())
+    view.page().runJavaScript("JSON.stringify({reuse:savedMarkers.every(marker=>[...objects.values()].some(item=>item.marker===marker)),focus:window.focusIP('9.9.9.9')})",reused)
     view.page().runJavaScript("bridge.select('8.8.8.8')")
     # Limit protects total markers; a large input should not create one object per IP.
     many=[{**fixture,'ip':f'test-{i}'} for i in range(1500)]
     view.update_data(many,Settings(map_limit=100,origin_enabled=True))
     QTimer.singleShot(300,check_limit)
 
+
+def reused(result):
+    value=json.loads(result);state['reuse']=value['reuse'];state['focus']=value['focus']
 
 def check_limit():
     view.page().runJavaScript("JSON.stringify({count:document.getElementById('counter').textContent,layers:layer.getLayers().length})",limited)

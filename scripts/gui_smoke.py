@@ -27,7 +27,7 @@ def serve_diagnostics():
         sock,_=server.accept()
         sock.close()
 threading.Thread(target=serve_diagnostics,daemon=True).start()
-window=MainWindow(Settings(interval=.5))
+window=MainWindow(Settings(interval=.5,onboarding_done=True))
 window.show()
 state={'snapshot':False,'map':False,'history':False,'pause':False,'diagnostic':False,'closed':False}
 errors=[]

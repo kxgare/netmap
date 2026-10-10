@@ -27,7 +27,7 @@ PRAGMA user_version=1;
 """
 
 
-def search_clause(search="", since="", until="", app=""):
+def search_clause(search="", since="", until="", app="", pid=None, protocol="", ip=""):
     clauses, params = [], []
     if search:
         # Literal search: '%' and '_' entered by a user are not wildcards.
@@ -43,6 +43,9 @@ def search_clause(search="", since="", until="", app=""):
     if app:
         clauses.append("(executable = ? OR (executable = '' AND process = ?))")
         params += [app, app]
+    for column,value in (("pid",pid),("protocol",protocol),("remote_ip",ip)):
+        if value is not None and value != "":
+            clauses.append(column+" = ?"); params.append(value)
     return (" WHERE " + " AND ".join(clauses) if clauses else ""), params
 
 
@@ -52,6 +55,8 @@ class HistoryStore:
             Path(path).parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(path, timeout=5)
         self.db.row_factory = sqlite3.Row
+        from netmap.geo.resolver import public_ip
+        self.db.create_function("IS_PUBLIC",1,public_ip,deterministic=True)
         self.db.create_function("CASEFOLD",1,lambda value: value.casefold() if value else "",deterministic=True)
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("PRAGMA synchronous=NORMAL")
@@ -103,10 +108,42 @@ class HistoryStore:
             self.db.execute("UPDATE sessions SET active=0 WHERE active=1")
         self.active.clear()
 
-    def history(self, search="", since="", until="", app="", limit=1000):
-        clause, params = search_clause(search, since, until, app)
-        query = "SELECT * FROM sessions" + clause + " ORDER BY last_seen DESC, id DESC LIMIT ?"
-        return [dict(r) for r in self.db.execute(query, [*params, min(max(limit,1),5000)])]
+    SORT_COLUMNS={'last_seen','first_seen','process','pid','remote_ip','remote_port','protocol','country'}
+
+    def history(self, search="", since="", until="", app="", limit=1000, offset=0,
+                pid=None, protocol="", ip="", sort="last_seen", descending=True):
+        clause,params=search_clause(search,since,until,app,pid,protocol,ip)
+        if sort not in self.SORT_COLUMNS: raise ValueError('Недопустимая сортировка')
+        query="SELECT * FROM sessions"+clause+" ORDER BY "+sort+(" DESC" if descending else " ASC")+", id DESC LIMIT ? OFFSET ?"
+        return [dict(r) for r in self.db.execute(query,[*params,min(max(limit,1),5000),max(0,offset)])]
+
+    def history_count(self, **query):
+        keys={k:v for k,v in query.items() if k in {'search','since','until','app','pid','protocol','ip'}}
+        clause,params=search_clause(**keys)
+        return self.db.execute('SELECT COUNT(*) FROM sessions'+clause,params).fetchone()[0]
+
+    def export_rows(self, **query):
+        keys={k:v for k,v in query.items() if k in {'search','since','until','app','pid','protocol','ip'}}
+        clause,params=search_clause(**keys)
+        cursor=self.db.execute('SELECT * FROM sessions'+clause+' ORDER BY last_seen DESC,id DESC',params)
+        for r in cursor: yield dict(r)
+
+    def analytics(self, seconds=900, now=None):
+        now=now or datetime.now(timezone.utc)
+        since=(now-timedelta(seconds=seconds)).isoformat(timespec='milliseconds') if seconds else ''
+        count=self.db.execute('SELECT COUNT(*) FROM samples WHERE time >= ?',(since,)).fetchone()[0]
+        stride=max(1,(count+359)//360)
+        samples=[dict(r) for r in self.db.execute("""WITH numbered AS
+            (SELECT *,row_number() OVER (ORDER BY time) AS n FROM samples WHERE time >= ?)
+            SELECT time,total,new,unique_ips FROM numbered WHERE (n-1) % ? = 0 OR n = ? ORDER BY time""",(since,stride,count))]
+        args=(since,)
+        apps=dict(self.db.execute('SELECT process,COUNT(*) FROM sessions WHERE last_seen >= ? GROUP BY process ORDER BY COUNT(*) DESC LIMIT 10',args))
+        protocols=dict(self.db.execute('SELECT protocol,COUNT(*) FROM sessions WHERE last_seen >= ? GROUP BY protocol',args))
+        countries=dict(self.db.execute("SELECT CASE WHEN country='' THEN 'Не определена' ELSE country END,COUNT(DISTINCT remote_ip) FROM sessions WHERE last_seen >= ? AND IS_PUBLIC(remote_ip) GROUP BY country ORDER BY COUNT(DISTINCT remote_ip) DESC LIMIT 10",args))
+        new_ips=self.db.execute('SELECT COUNT(*) FROM (SELECT remote_ip,MIN(first_seen) AS first FROM sessions WHERE IS_PUBLIC(remote_ip) GROUP BY remote_ip HAVING first >= ?)',args).fetchone()[0]
+        unique=self.db.execute('SELECT COUNT(DISTINCT remote_ip) FROM sessions WHERE last_seen >= ? AND remote_ip != ?',(since,'' )).fetchone()[0]
+        return {'seconds':seconds,'samples':samples,'apps':apps,'protocols':protocols,'countries':countries,
+                'new_ips':new_ips,'unique_ips':unique,'sample_count':count,'available':bool(count)}
 
     def recent_map(self, limit=1000):
         return [dict(r) for r in self.db.execute("""SELECT * FROM sessions WHERE latitude IS NOT NULL

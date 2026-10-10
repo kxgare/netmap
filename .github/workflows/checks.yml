@@ -24,6 +24,7 @@ jobs:
       - run: python -m pytest -q
       - run: python scripts/gui_smoke.py
       - run: python scripts/map_smoke.py
+      - run: python scripts/atlas_smoke.py
   windows-build:
     runs-on: windows-latest
     steps:

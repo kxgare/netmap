@@ -12,7 +12,10 @@ from netmap.ui.history_page import HistoryPage
 from netmap.ui.map_page import MapPage
 from netmap.ui.settings_page import SettingsPage
 from netmap.ui.window_frame import NativeFrameMixin, TitleBar
-from netmap.ui.theme import STYLE
+from netmap.ui.theme import stylesheet, tokens
+from netmap.ui.navigation import Navigation
+from netmap.ui.welcome import WelcomeStrip
+from netmap.ui.notifications import NotificationBar
 from netmap.diagnostics.tcp import normalize_host
 
 
@@ -22,6 +25,9 @@ class MainWindow(NativeFrameMixin,QMainWindow):
     history_requested = Signal(object)
     clear_requested = Signal()
     diagnostic_saved = Signal(object)
+    analytics_active_requested=Signal(bool)
+    analytics_requested=Signal(int)
+    export_requested=Signal(object)
     stop_requested = Signal()
 
     def __init__(self, settings):
@@ -35,11 +41,11 @@ class MainWindow(NativeFrameMixin,QMainWindow):
         self.poll_count = 0
         self.setWindowTitle("NetMap — Network Intelligence")
         self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
-        self.setMinimumSize(1080,700)
+        self.setMinimumSize(980,640)
         self.resize(1440,900)
         resources = Path(__file__).resolve().parents[1]/"resources"
         self.setWindowIcon(QIcon(str(resources/"logo.svg")))
-        self.setStyleSheet(STYLE)
+        self.setStyleSheet(stylesheet(settings.theme))
         root = QWidget()
         root.setObjectName("root")
         self.setCentralWidget(root)
@@ -48,16 +54,13 @@ class MainWindow(NativeFrameMixin,QMainWindow):
         layout.setSpacing(0)
         self.title = TitleBar(self)
         layout.addWidget(self.title)
-        body = QHBoxLayout()
-        body.setSpacing(0)
-        sidebar = QFrame()
-        sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(210)
-        nav = QVBoxLayout(sidebar)
-        nav.setContentsMargins(16,28,16,20)
-        nav.addWidget(label("NetMap","brand"))
-        nav.addWidget(label("ВАША СЕТЬ НА КАРТЕ","eyebrow"))
-        nav.addSpacing(28)
+        self.navigation = Navigation()
+        layout.addWidget(self.navigation)
+        self.welcome=WelcomeStrip()
+        layout.addWidget(self.welcome)
+        self.welcome.setVisible(not settings.onboarding_done)
+        self.welcome.finished.connect(self.finish_onboarding)
+        self.welcome.settings_requested.connect(lambda:self.navigate(5))
         self.pages = QStackedWidget()
         self.map_page = MapPage()
         self.map_page.settings = settings
@@ -68,30 +71,15 @@ class MainWindow(NativeFrameMixin,QMainWindow):
         self.analytics_page.run.setEnabled(settings.diagnostics_enabled)
         self.history_page = HistoryPage()
         self.settings_page = SettingsPage(settings)
-        self.nav_buttons = []
-        specs = [("Карта","map",self.map_page),("Соединения","connections",self.connections_page),
-                 ("Приложения","apps",self.apps_page),("Аналитика","analytics",self.analytics_page),
-                 ("История","history",self.history_page),("Настройки","settings",self.settings_page)]
-        for index,(name,icon,page) in enumerate(specs):
+        for page in (self.map_page,self.connections_page,self.apps_page,self.analytics_page,self.history_page,self.settings_page):
             self.pages.addWidget(page)
-            button = QPushButton(name)
-            button.setIcon(QIcon(str(resources/(icon+'.svg'))))
-            button.setCheckable(True)
-            button.setObjectName("nav")
-            button.clicked.connect(lambda checked=False,i=index:self.navigate(i))
-            nav.addWidget(button)
-            self.nav_buttons.append(button)
-        nav.addStretch()
-        nav.addWidget(label("ЛОКАЛЬНО · ПРИВАТНО","eyebrow"))
-        nav.addWidget(label("Содержимое пакетов\nне собирается","subheading",True))
-        nav.addSpacing(15)
-        nav.addWidget(label("Версия 0.1 · MVP","subheading"))
-        body.addWidget(sidebar)
-        body.addWidget(self.pages,1)
-        layout.addLayout(body,1)
+        self.nav_buttons = self.navigation.buttons
+        layout.addWidget(self.pages,1)
+        self.navigation.selected.connect(self.navigate)
+        self.navigation.mode_changed.connect(self.set_mode)
         foot = QHBoxLayout()
         foot.setContentsMargins(14,0,0,0)
-        self.message = label("Ожидание первого опроса…","subheading")
+        self.message = NotificationBar()
         foot.addWidget(self.message,1)
         grip = QSizeGrip(self)
         foot.addWidget(grip)
@@ -102,6 +90,16 @@ class MainWindow(NativeFrameMixin,QMainWindow):
         self.thread.started.connect(self.worker.start)
         self.worker.updated.connect(self.on_update)
         self.worker.error.connect(self.on_error)
+        self.worker.analytics_ready.connect(self.analytics_page.show_period)
+        self.worker.export_ready.connect(self.message.setText)
+        self.worker.geo_ready.connect(self.settings_page.geo_status.setText)
+        self.analytics_requested.connect(self.worker.query_analytics)
+        self.analytics_active_requested.connect(self.worker.set_analytics_active)
+        self.export_requested.connect(self.worker.export_history)
+        self.analytics_page.period_requested.connect(self.analytics_requested)
+        self.history_page.export_requested.connect(self.export_requested)
+        self.connections_page.export_requested.connect(self.export_requested)
+        self.settings_page.export_requested.connect(lambda:self.navigate(4))
         self.worker.history_ready.connect(self.on_history)
         self.worker.diagnostics_ready.connect(self.analytics_page.show_diagnostics)
         self.enabled_requested.connect(self.worker.set_enabled)
@@ -113,6 +111,15 @@ class MainWindow(NativeFrameMixin,QMainWindow):
         self.worker.stopped.connect(self.thread.quit)
         self.thread.finished.connect(self.worker.deleteLater)
         self.thread.finished.connect(self.finish_close)
+        self.apps_page.map_requested.connect(self.show_app_map)
+        self.apps_page.connections_requested.connect(self.show_app_connections)
+        self.connections_page.map_requested.connect(self.show_ip_map)
+        self.connections_page.app_requested.connect(self.show_app)
+        self.connections_page.history_requested.connect(self.show_ip_history)
+        self.map_page.history_requested.connect(self.show_ip_history)
+        self.map_page.settings_requested.connect(lambda:self.navigate(5))
+        self.history_page.map_requested.connect(self.show_ip_map)
+        self.history_page.app_requested.connect(self.show_app)
         self.history_page.requested.connect(self.history_requested)
         self.apps_page.history_requested.connect(self.history_requested)
         self.history_page.clear_requested.connect(self.confirm_clear)
@@ -121,9 +128,56 @@ class MainWindow(NativeFrameMixin,QMainWindow):
         self.analytics_page.probe_requested.connect(self.start_probe)
         self.analytics_page.cancel_requested.connect(self.cancel_probe)
         self.title.pause.clicked.connect(self.toggle_monitor)
+        self.set_mode(settings.mode, persist=False)
         self.navigate(0)
         self.update_status()
         self.thread.start()
+
+    def set_mode(self,mode,persist=True):
+        self.settings = replace(self.settings,mode=mode)
+        self.navigation.set_mode(mode)
+        self.settings_page.theme.setCurrentIndex(self.settings_page.theme.findData(self.settings.theme))
+        for chart in (self.analytics_page.timeline,self.analytics_page.apps,self.analytics_page.protocols,self.analytics_page.countries):
+            chart.theme=self.settings.theme; chart.update()
+        for i in range(self.pages.count()):
+            page=self.pages.widget(i)
+            if hasattr(page,'set_mode'): page.set_mode(mode)
+        self.settings_page.settings=self.settings
+        self.map_page.settings=self.settings
+        if self.enabled: self.map_page.render()
+        if persist:
+            try: self.settings.save()
+            except OSError: self.message.setText('Не удалось сохранить режим. Проверьте доступ к папке данных.')
+        if self.last_payload and self.enabled: self.map_page.update_data(self.last_payload,self.settings)
+        elif not self.enabled: self.map_page.map.update_data([],self.settings)
+
+    def finish_onboarding(self):
+        self.settings=replace(self.settings,onboarding_done=True)
+        self.settings_page.settings=self.settings
+        try: self.settings.save()
+        except OSError: self.message.setText('Мастер завершён, но настройки не удалось сохранить.')
+
+    def show_ip_map(self,ip):
+        self.navigate(0); self.map_page.apps.setCurrentIndex(0); self.map_page.focus_ip(ip)
+        self.history_requested.emit({"ip":ip,"limit":1,"_target":"map"})
+
+    def show_ip_history(self,ip):
+        self.navigate(4); self.history_page.find_ip(ip)
+
+    def show_app_map(self,key):
+        self.navigate(0); self.map_page.filter_app(key)
+
+    def show_app_connections(self,key):
+        self.navigate(1)
+        if self.settings.mode=='simple': self.connections_page.groups.select_app(key)
+        else:
+            index=self.connections_page.apps.findData(key)
+            if index>=0: self.connections_page.apps.setCurrentIndex(index)
+
+    def show_app(self,key):
+        self.navigate(2); self.apps_page.groups.select_app(key)
+        if not any(c.app_key==key for c in self.apps_page.connections):
+            self.message.setText('Эта программа сейчас не наблюдается. Её сеансы доступны в истории.')
 
     def showEvent(self,event):
         super().showEvent(event)
@@ -133,14 +187,16 @@ class MainWindow(NativeFrameMixin,QMainWindow):
 
     def navigate(self,index):
         self.pages.setCurrentIndex(index)
-        for i,button in enumerate(self.nav_buttons):
-            button.setChecked(i==index)
+        self.navigation.select(index)
+        self.analytics_active_requested.emit(index==3)
         if index==4:
-            self.history_page.query()
+            self.history_page.query(False)
+        if index==3:
+            self.analytics_requested.emit(self.analytics_page.period.currentData())
 
     def update_status(self):
         self.title.status.setText("●  Мониторинг включён" if self.enabled else "○  Мониторинг остановлен")
-        self.title.status.setStyleSheet("color:"+("#6be4c1" if self.enabled else "#e3bb79"))
+        self.title.status.setStyleSheet("color:"+(tokens(self.settings.theme).good if self.enabled else tokens(self.settings.theme).warning))
         self.title.pause.setText("Пауза" if self.enabled else "Продолжить")
 
     def toggle_monitor(self):
@@ -165,25 +221,36 @@ class MainWindow(NativeFrameMixin,QMainWindow):
         if self.pages.currentWidget() == self.apps_page and self.poll_count % 5 == 0:
             self.apps_page.request_history()
         self.title.status.setText("●  Мониторинг включён")
-        self.title.status.setStyleSheet("color:#6be4c1")
+        self.title.status.setStyleSheet("color:"+tokens(self.settings.theme).good)
         from netmap.ui.table import display_time
         self.message.setText(payload['warning'] or f"Обновлено: {display_time(payload['time'])} · интервал {self.settings.interval:g} с · короткие соединения могут быть пропущены")
 
     @Slot(str)
     def on_error(self,message):
-        self.message.setText(message)
-        self.title.status.setText("●  Сбор ограничен" if self.enabled else "○  Мониторинг остановлен")
-        self.title.status.setStyleSheet("color:#e3bb79")
+        self.message.notify(message)
+        if any(word in message.lower() for word in ("сбор","мониторинг","обработки","ос запретила")):
+            self.title.status.setText("●  Сбор ограничен" if self.enabled else "○  Мониторинг остановлен")
+            self.title.status.setStyleSheet("color:"+tokens(self.settings.theme).warning)
 
     @Slot(object)
     def on_history(self,payload):
-        if payload['query'].get('_target')=='app':
+        if payload['query'].get('_target')=='map':
+            ip=payload['query']['ip']
+            if self.map_page.selected_ip!=ip: return
+            for row in payload['rows']:
+                if row['latitude'] is not None and row['longitude'] is not None:
+                    self.map_page.historical.insert(0,row)
+            self.map_page.render(); self.map_page.focus_ip(ip)
+        elif payload['query'].get('_target')=='app':
             self.apps_page.show_history(payload)
         else:
             self.history_page.show_rows(payload)
 
     def apply_settings(self,settings):
         self.settings = settings
+        self.setStyleSheet(stylesheet(settings.theme))
+        self.set_mode(settings.mode, persist=False)
+        self.update_status()
         self.configure_requested.emit(settings)
         self.analytics_page.run.setEnabled(settings.diagnostics_enabled and not (self.diag and self.diag.isRunning()))
         if not settings.diagnostics_enabled:
@@ -247,6 +314,9 @@ class MainWindow(NativeFrameMixin,QMainWindow):
             return
         event.ignore()
         if self.closing:
+            return
+        if self.settings_page.validator and self.settings_page.validator.isRunning():
+            self.message.setText("Дождитесь завершения проверки локальной базы.")
             return
         self.closing = True
         self.enabled = False

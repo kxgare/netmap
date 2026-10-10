@@ -1,5 +1,7 @@
 import ctypes
 import os
+from pathlib import Path
+from PySide6.QtGui import QIcon
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton
 
@@ -9,17 +11,16 @@ class TitleBar(QFrame):
         super().__init__(window)
         self.window = window
         self.setObjectName("titlebar")
-        self.setFixedHeight(58)
+        self.setFixedHeight(66)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(22,0,0,0)
         title = QLabel("NetMap")
-        title.setStyleSheet("font-size:17px; font-weight:650; color:#daeeff")
+        title.setObjectName("brand")
         title.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        logo=QLabel(); logo.setPixmap(QIcon(str(Path(__file__).resolve().parents[1]/"resources/logo.svg")).pixmap(28,28))
+        logo.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        layout.addWidget(logo)
         layout.addWidget(title)
-        subtitle = QLabel("NETWORK INTELLIGENCE")
-        subtitle.setObjectName("eyebrow")
-        subtitle.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        layout.addWidget(subtitle)
         layout.addStretch()
         self.status = QLabel("●  Мониторинг")
         self.status.setObjectName("status")
@@ -28,6 +29,9 @@ class TitleBar(QFrame):
         self.pause.setFixedHeight(32)
         layout.addWidget(self.pause)
         layout.addSpacing(15)
+        self.settings = self.button("", "Настройки", lambda: window.navigate(5))
+        self.settings.setIcon(QIcon(str(Path(__file__).resolve().parents[1]/"resources/settings.svg")))
+        layout.addWidget(self.settings)
         self.minimize = self.button("−", "Свернуть", window.showMinimized)
         self.maximize = self.button("□", "Развернуть / восстановить", self.toggle_maximize)
         self.close_button = self.button("×", "Закрыть", window.close, "close")
@@ -38,7 +42,7 @@ class TitleBar(QFrame):
         b = QPushButton(text)
         b.setObjectName(name)
         b.setToolTip(tooltip)
-        b.setFixedSize(48,58)
+        b.setFixedSize(42,60)
         b.clicked.connect(action)
         return b
 
